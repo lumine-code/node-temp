@@ -1,317 +1,89 @@
-![Image of node-temp logo](https://raw.githubusercontent.com/bruce/node-temp/master/media/A5.jpg)
-=========
+# @lumine-code/temp
 
-Temporary files, directories, and streams for Node.js.
+Temporary files and directories for Node.js.
 
-Handles generating a unique file/directory name under the appropriate
-system temporary directory, changing the file to an appropriate mode,
-and supports automatic removal (if asked)
+Generates a unique file or directory name under the system temporary directory, creates it with a safe mode, and optionally removes it automatically on exit. The API mirrors the `fs` module and has no runtime dependencies — cleanup is handled with the built-in `fs.rm`, so there is no `rimraf`/`mkdirp` chain to maintain.
 
-`temp` has a similar API to the `fs` module.
+## Features
 
-Node.js Compatibility
----------------------
+- **Files, directories, and streams**: create them with `open`/`openSync`, `mkdir`/`mkdirSync`, and `createWriteStream`.
+- **Automatic cleanup**: call `track()` once to have created paths removed on process exit.
+- **On-demand cleanup**: run `cleanup()`/`cleanupSync()` at any time and get back the counts removed.
+- **Custom affixes**: pass a prefix string, or a `{ prefix, suffix, dir }` object, to shape the generated name.
+- **No dependencies**: built entirely on Node.js built-ins (`fs`, `os`, `path`).
 
-Supports v6.0.0+.
-
-[![Build Status](https://travis-ci.org/bruce/node-temp.png)](https://travis-ci.org/bruce/node-temp)
-
-Please let me know if you have problems running it on a later version of Node.js or
-have platform-specific problems.
-
-Installation
-------------
-
-Install it using [npm](http://github.com/isaacs/npm):
-
-    $ npm install temp
-
-Or get it directly from:
-http://github.com/bruce/node-temp
-
-Synopsis
---------
-
-You can create temporary files with `open` and `openSync`, temporary
-directories with `mkdir` and `mkdirSync`, or you can get a unique name
-in the system temporary directory with `path`.
-
-See the [API section](https://github.com/bruce/node-temp#API) for more details on the API of `temp`.
-
-Working copies of the following examples can be found under the
-`examples` directory.
-
-### Temporary Files (`open` and `openSync`)
-
-To create a temporary file use `open` or `openSync`, passing
-them an optional prefix, suffix, or both (see below for details on
-affixes). The object passed to the callback (or returned) has
-`path` and `fd` keys:
-
-```javascript
-{ path: "/path/to/file",
-, fd: theFileDescriptor
-}
-```
-
-In this example we write to a temporary file and call out to `grep` and
-`wc -l` to determine the number of time `foo` occurs in the text.  The
-temporary file is chmod'd `0600` and cleaned up automatically when the
-process at exit (because `temp.track()` is called):
-
-```javascript
-var temp = require('temp'),
-    fs   = require('fs'),
-    util  = require('util'),
-    exec = require('child_process').exec;
-
-// Automatically track and cleanup files at exit
-temp.track();
-
-// Fake data
-var myData = "foo\nbar\nfoo\nbaz";
-
-// Process the data (note: error handling omitted)
-temp.open('myprefix', function(err, info) {
-  if (!err) {
-    fs.write(info.fd, myData, (err) => {
-		console.log(err);
-	});
-    fs.close(info.fd, function(err) {
-      exec("grep foo '" + info.path + "' | wc -l", function(err, stdout) {
-        util.puts(stdout.trim());
-      });
-    });
-  }
-});
-```
-
-### Want Cleanup? Make sure you ask for it. (`track`)
-
-As noted in the example above, if you want temp to track the files and
-directories it creates and handle removing those files and directories
-on exit, you must call `track()`. The `track()` function is chainable,
-and it's recommended that you call it when requiring the module.
-
-```javascript
-var temp = require("temp").track();
-```
-
-Why is this necessary? In pre-0.6 versions of temp, tracking was
-automatic. While this works great for scripts and
-[Grunt tasks](http://gruntjs.com/), it's not so great for long-running
-server processes. Since that's arguably what Node.js is _for_, you
-have to opt-in to tracking.
-
-But it's easy.
-
-#### Cleanup anytime (`cleanup`, `cleanupSync`)
-
-When tracking, you can run `cleanup()` and `cleanupSync()` anytime
-(`cleanupSync()` will be run for you on process exit). An object will
-be returned (or passed to the callback) with cleanup counts and
-the file/directory tracking lists will be reset.
-
-```javascript
-> temp.cleanupSync();
-{ files: 1,
-  dirs:  0 }
-```
-
-```javascript
-> temp.cleanup(function(err, stats) {
-    console.log(stats);
-  });
-{ files: 1,
-  dirs:  0 }
-```
-
-Note: If you're not tracking, an error ("not tracking") will be passed
-to the callback.
-
-### Temporary Directories (`mkdir`, `mkdirSync`)
-
-To create a temporary directory, use `mkdir` or `mkdirSync`, passing
-it an optional prefix, suffix, or both (see below for details on affixes).
-
-In this example we create a temporary directory, write to a file
-within it, call out to an external program to create a PDF, and read
-the result.  While the external process creates a lot of additional
-files, the temporary directory is removed automatically at exit (because
-`temp.track()` is called):
-
-```javascript
-var temp = require('temp'),
-    fs   = require('fs'),
-    util = require('util'),
-    path = require('path'),
-    exec = require('child_process').exec;
-
-// Automatically track and cleanup files at exit
-temp.track();
-
-// For use with ConTeXt, http://wiki.contextgarden.net
-var myData = "\\starttext\nHello World\n\\stoptext";
-
-temp.mkdir('pdfcreator', function(err, dirPath) {
-  var inputPath = path.join(dirPath, 'input.tex')
-  fs.writeFile(inputPath, myData, function(err) {
-    if (err) throw err;
-    process.chdir(dirPath);
-    exec("texexec '" + inputPath + "'", function(err) {
-      if (err) throw err;
-      fs.readFile(path.join(dirPath, 'input.pdf'), function(err, data) {
-        if (err) throw err;
-        sys.print(data);
-      });
-    });
-  });
-});
-```
-
-### Temporary Streams (`createWriteStream`)
-
-To create a temporary WriteStream, use 'createWriteStream', which sits
-on top of `fs.createWriteStream`. The return value is a
-`fs.WriteStream` with a `path` property containing the temporary file
-path for the stream. The `path` is registered for removal when
-`temp.cleanup` is called (because `temp.track()` is called).
-
-```javascript
-var temp = require('temp');
-
-// Automatically track and cleanup files at exit
-temp.track();
-
-var stream = temp.createWriteStream();
-// stream.path contains the temporary file path for the stream
-stream.write("Some data");
-// Maybe do some other things
-stream.end();
-```
-
-### Affixes (options)
-
-You can provide custom prefixes and suffixes when creating temporary
-files and directories. If you provide a string, it is used as the prefix
-for the temporary name. If you provide an object with `prefix`,
-`suffix` and `dir` keys, they are used for the temporary name.
-
-Here are some examples:
-
-* `"aprefix"`: A simple prefix, prepended to the filename; this is
-  shorthand for:
-* `{prefix: "aprefix"}`: A simple prefix, prepended to the filename
-* `{suffix: ".asuffix"}`: A suffix, appended to the filename
-  (especially useful when the file needs to be named with specific
-  extension for use with an external program).
-* `{prefix: "myprefix", suffix: "mysuffix"}`: Customize both affixes
-* `{dir: path.join(os.tmpdir(), "myapp")}`: default prefix and suffix
-  within a new temporary directory.
-* `null`: Use the defaults for files and directories (prefixes `"f-"`
-  and `"d-"`, respectively, no suffixes).
-
-In this simple example we read a `pdf`, write it to a temporary file with
-a `.pdf` extension, and close it.
-
-```javascript
-var fs   = require('fs'),
-    temp = require('temp');
-
-fs.readFile('/path/to/source.pdf', function(err, data) {
-  temp.open({suffix: '.pdf'}, function(err, info) {
-    if (err) throw err;
-    fs.write(info.fd, data, (err) => {
-			console.log(err)
-		});
-    fs.close(info.fd, function(err) {
-      if (err) throw err;
-      // Do something with the file
-    });
-  });
-});
-```
-
-### Just a path, please (`path`)
-
-If you just want a unique name in your temporary directory, use
-`path`:
-
-```javascript
-var fs = require('fs');
-var tempName = temp.path({suffix: '.pdf'});
-// Do something with tempName
-```
-
-Note: The file isn't created for you, and the mode is not changed  -- and it
-will not be removed automatically at exit.  If you use `path`, it's
-all up to you.
-
-
-API
--------
-
-```ts
-interface OpenFile {
-	path: string;
-	fd: number;
-}
-
-interface Stats {
-	files: number;
-	dirs: number;
-}
-
-interface AffixOptions {
-	prefix?: string;
-	suffix?: string;
-	dir?: string;
-}
-
-function track(value?: boolean): typeof temp;
-
-function mkdir(affixes: string | AffixOptions | undefined, callback: (err: any, dirPath: string) => void): void;
-function mkdir(affixes?: string | AffixOptions): Promise<string>;
-
-function mkdirSync(affixes?: string | AffixOptions): string;
-
-function open(affixes: string | AffixOptions | undefined, callback: (err: any, result: OpenFile) => void): void;
-function open(affixes?: string | AffixOptions): Promise<OpenFile>;
-
-function openSync(affixes?: string | AffixOptions): OpenFile;
-
-function path(affixes?: string | AffixOptions, defaultPrefix?: string): string;
-
-function cleanup(callback: (err: any, result: Stats) => void): void;
-function cleanup(): Promise<Stats>;
-
-function cleanupSync(): boolean | Stats;
-
-function createWriteStream(affixes?: string | AffixOptions): fs.WriteStream;
-```
-
-
-Testing
--------
+## Installation
 
 ```sh
-$ npm test
+npm install @lumine-code/temp
 ```
 
-Contributing
-------------
+## Usage
 
-You can find the repository at:
-http://github.com/bruce/node-temp
+```js
+const temp = require("@lumine-code/temp");
 
-Issues/Feature Requests can be submitted at:
-http://github.com/bruce/node-temp/issues
+// Opt in to automatic cleanup at exit.
+temp.track();
 
-I'd really like to hear your feedback, and I'd love to receive your
-pull-requests!
+temp.mkdir("myprefix", (err, dirPath) => {
+  if (err) throw err;
+  // ...use dirPath; it is removed automatically on exit.
+});
+```
 
-Copyright
----------
+If you want cleanup, you must ask for it with `track()` — tracking is opt-in so it does not interfere with long-running server processes. `track()` is chainable, so it is common to call it when requiring the module:
 
-Copyright (c) 2010-2014 Bruce Williams. This software is licensed
-under the MIT License, see LICENSE for details.
+```js
+const temp = require("@lumine-code/temp").track();
+```
+
+## API
+
+### temp.track([value])
+
+Enable (or, with `false`, disable) tracking of created paths for removal on exit. Returns the module, so it can be chained off `require`.
+
+### temp.mkdir(affixes, callback) / temp.mkdir(affixes)
+
+Create a temporary directory. With a callback, calls back with `(err, dirPath)`; without one, returns a `Promise` for the path.
+
+### temp.mkdirSync(affixes)
+
+Create a temporary directory synchronously and return its path.
+
+### temp.open(affixes, callback) / temp.open(affixes)
+
+Create and open a temporary file. Calls back with (or resolves to) an object with `path` and `fd` keys.
+
+### temp.openSync(affixes)
+
+Create and open a temporary file synchronously; returns `{ path, fd }`.
+
+### temp.createWriteStream(affixes)
+
+Return an `fs.WriteStream` for a new temporary file. The stream's `path` is registered for removal when tracking is enabled.
+
+### temp.path(affixes, [defaultPrefix])
+
+Return a unique path string in the temporary directory **without** creating anything. Creation, mode, and removal are then your responsibility.
+
+### temp.cleanup(callback) / temp.cleanup()
+
+Remove all tracked files and directories and reset the tracking lists. Calls back with (or resolves to) `{ files, dirs }` counts. Errors with `"not tracking"` when tracking is disabled.
+
+### temp.cleanupSync()
+
+Synchronous `cleanup`; returns the `{ files, dirs }` counts, or `false` when not tracking.
+
+### Affixes
+
+Anywhere `affixes` is accepted you may pass:
+
+- a string — used as the filename prefix;
+- an object with any of `prefix`, `suffix`, and `dir`;
+- `null`/omitted — use the defaults (`f-` for files, `d-` for directories).
+
+## Contributing
+
+Got ideas to make this package better, found a bug, or want to help add new features? Just drop your thoughts on GitHub. Any feedback is welcome!
